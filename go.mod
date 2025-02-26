@@ -5,7 +5,7 @@ go 1.23.4
 require (
 	github.com/btcsuite/btclog/v2 v2.0.0
 	github.com/btcsuite/btcwallet/walletdb v1.4.4
-	github.com/lightningnetwork/lnd/kvdb v1.4.12
+	github.com/lightningnetwork/lnd/kvdb v1.4.10
 	github.com/stretchr/testify v1.9.0
 )
 
