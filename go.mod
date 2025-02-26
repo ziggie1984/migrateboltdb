@@ -1,4 +1,4 @@
-module migrateboltdb
+module github.com/ziggie1984/migrateboltdb
 
 go 1.23.4
 
