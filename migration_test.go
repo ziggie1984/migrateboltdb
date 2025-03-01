@@ -9,12 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btclog/v2"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/stretchr/testify/require"
-
-	"github.com/btcsuite/btclog/v2"
-	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 )
 
 func TestMigration(t *testing.T) {
@@ -60,11 +58,10 @@ func TestMigration(t *testing.T) {
 	// Configure and run migration
 	cfg := Config{
 		// Chunksize in bytes.
-		ChunkSize:     2,
-		StateFilePath: filepath.Join(tempDir, "migration.state"),
-		SourceDB:      sourceDB,
-		Logger:        consoleLogger,
-		TargetDB:      targetDB,
+		ChunkSize: 2,
+		SourceDB:  sourceDB,
+		Logger:    consoleLogger,
+		TargetDB:  targetDB,
 	}
 
 	migrator, err := New(cfg)
@@ -73,142 +70,12 @@ func TestMigration(t *testing.T) {
 	err = migrator.Migrate(context.Background())
 	require.NoError(t, err)
 
+	err = migrator.VerifyMigration(context.Background())
+	require.NoError(t, err)
+
 	// Verify migration
 	err = verifyDatabases(t, sourceDB, targetDB)
 	require.NoError(t, err)
-}
-
-func TestMigrationAndVerification(t *testing.T) {
-	// Create temporary directory for test databases
-	tmpDir, err := os.MkdirTemp("", "boltdb_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Create source and target database paths
-	sourceDBPath := filepath.Join(tmpDir, "source.db")
-	targetDBPath := filepath.Join(tmpDir, "target.db")
-	stateFilePath := filepath.Join(tmpDir, "migration.state")
-
-	const (
-		noFreelistSync = true
-		timeout        = time.Minute
-	)
-
-	// Create and populate source database
-	args := []interface{}{
-		sourceDBPath, noFreelistSync, timeout,
-	}
-	backend := kvdb.BoltBackendName
-
-	sourceDB, err := walletdb.Create(backend, args...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sourceDB.Close()
-
-	// Populate source database with test data
-	err = sourceDB.Update(func(tx walletdb.ReadWriteTx) error {
-		// Create root bucket
-		bucket, err := tx.CreateTopLevelBucket([]byte("test"))
-		if err != nil {
-			return err
-		}
-
-		// Create nested buckets and add data
-		for i := 0; i < 3; i++ {
-			nestedBucket, err := bucket.CreateBucket([]byte(fmt.Sprintf("nested%d", i)))
-			if err != nil {
-				return err
-			}
-
-			// Add some key-value pairs
-			for j := 0; j < 100; j++ {
-				key := []byte(fmt.Sprintf("key%d", j))
-				value := []byte(fmt.Sprintf("value%d", j))
-				if err := nestedBucket.Put(key, value); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}, func() {})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Create target database
-	args = []interface{}{
-		targetDBPath, noFreelistSync, timeout,
-	}
-
-	targetDB, err := walletdb.Create(backend, args...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer targetDB.Close()
-
-	consoleLogHandler := btclog.NewDefaultHandler(
-		os.Stdout,
-	)
-	consoleLogger := btclog.NewSLogger(consoleLogHandler)
-	consoleLogger.SetLevel(btclog.LevelDebug)
-
-	// Create migrator with small chunk size to test chunking
-	migrator, err := New(Config{
-		ChunkSize:     1024, // Small chunk size to force multiple chunks
-		StateFilePath: stateFilePath,
-		SourceDB:      sourceDB,
-		TargetDB:      targetDB,
-		Logger:        consoleLogger,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Perform migration
-	ctx := context.Background()
-	if err := migrator.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify migration
-	if err := migrator.VerifyMigration(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	// Test resumability by creating a new migrator and verifying again
-	migrator2, err := New(Config{
-		ChunkSize:     1024,
-		StateFilePath: stateFilePath,
-		SourceDB:      sourceDB,
-		TargetDB:      targetDB,
-		Logger:        consoleLogger,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := migrator2.VerifyMigration(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	// Test verification with different chunk sizes
-	migrator3, err := New(Config{
-		ChunkSize:     4096, // Different chunk size
-		StateFilePath: stateFilePath,
-		SourceDB:      sourceDB,
-		TargetDB:      targetDB,
-		Logger:        consoleLogger,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := migrator3.VerifyMigration(ctx); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func createTestDatabase(dbPath string) (walletdb.DB, error) {
